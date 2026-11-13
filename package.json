@@ -1,7 +1,7 @@
 {
   "name": "dsh-web-billing",
-  "version": "2.3.2",
-  "description": "RMB/USD token-billing plugin for DSH web: official-policy auto pricing (incl. peak/off-peak), full coding-plan billing by provider routing, Settings→Cost summary page, per-message ledger, account balance, locale-driven currency display",
+  "version": "3.0.0",
+  "description": "RMB/USD token-billing plugin for DSH web: official-policy auto pricing (incl. peak/off-peak), online pricing catalog (models.dev/OpenRouter snapshot + TTL cache), free-model detection cache with one-click zero-rate billing, full coding-plan billing by provider routing, Settings→Cost summary page, per-message ledger, account balance, locale-driven currency display",
   "keywords": [
     "dsh",
     "deepseek-harness",
@@ -10,6 +10,7 @@
     "pricing",
     "rmb",
     "usd",
+    "free-models",
     "cordis"
   ],
   "type": "module",
@@ -21,14 +22,17 @@
     },
     "./client": "./lib/client.js",
     "./pricing": "./lib/pricing.js",
+    "./catalog": "./lib/catalog.js",
     "./balance": "./lib/balance.js",
     "./package.json": "./package.json"
   },
   "files": [
     "lib",
     "scripts",
+    "assets",
     "docs",
     "cordis.patch.yml",
+    "CHANGELOG.md",
     "CONTRIBUTING.md",
     "README.md",
     "README.en.md",
@@ -36,11 +40,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bpc-oss/dsh-web-billing.git"
+    "url": "git+https://github.com/Jensen-Yao/dsh-web-billing.git"
   },
-  "homepage": "https://github.com/bpc-oss/dsh-web-billing#readme",
+  "homepage": "https://jensen-yao.github.io/dsh-web-billing/",
   "bugs": {
-    "url": "https://github.com/bpc-oss/dsh-web-billing/issues"
+    "url": "https://github.com/Jensen-Yao/dsh-web-billing/issues"
   },
   "engines": {
     "node": ">=20"
@@ -58,16 +62,19 @@
     "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.6"
   },
   "scripts": {
-    "test": "node --test",
-    "check": "node --check lib/index.js && node --check lib/pricing.js && node --check lib/coding-plans.js && node --check lib/promo-models.js && node --check lib/balance.js && node --check lib/client.js && node --check scripts/sync-coding-plans.mjs && node --check scripts/sync-promo-models.mjs",
+    "test": "vitest run",
+    "check": "node --check lib/index.js && node --check lib/pricing.js && node --check lib/catalog.js && node --check lib/coding-plans.js && node --check lib/promo-models.js && node --check lib/balance.js && node --check lib/client.js && node --check scripts/sync-coding-plans.mjs && node --check scripts/sync-promo-models.mjs && vitest run",
     "sync:coding-plans": "node scripts/sync-coding-plans.mjs",
     "sync:promo-models": "node scripts/sync-promo-models.mjs",
-    "prepublishOnly": "npm run check && npm test",
+    "prepublishOnly": "npm run check",
     "prepack": "node scripts/prepack-check.mjs"
   },
   "license": "MIT",
   "types": "lib/index.d.ts",
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.7"
   }
 }

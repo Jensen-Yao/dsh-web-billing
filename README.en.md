@@ -2,16 +2,29 @@
 
 [简体中文](README.md) · **English**
 
+<img src="assets/banner-light.svg#gh-light-mode-only" alt="dsh-web-billing banner" width="820">
+<img src="assets/banner-dark.svg#gh-dark-mode-only" alt="dsh-web-billing banner" width="820">
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/bpc-oss/dsh-web-billing?style=flat&label=stars&color=2563eb)](https://github.com/bpc-oss/dsh-web-billing/stargazers)
-[![GitHub release](https://img.shields.io/github/v/release/bpc-oss/dsh-web-billing?label=release&color=16a34a)](https://github.com/bpc-oss/dsh-web-billing/releases)
+[![GitHub stars](https://img.shields.io/github/stars/Jensen-Yao/dsh-web-billing?style=flat&label=stars&color=2563eb)](https://github.com/Jensen-Yao/dsh-web-billing/stargazers)
+[![GitHub release](https://img.shields.io/github/v/release/Jensen-Yao/dsh-web-billing?label=release&color=16a34a)](https://github.com/Jensen-Yao/dsh-web-billing/releases)
 [![dsh-plugin](https://img.shields.io/badge/dsh-plugin-16a34a)](https://github.com/topics/dsh-plugin)
+[![tests](https://img.shields.io/badge/tests-vitest%20%C3%9746-646CFF)](#develop)
 
 A RMB/USD token-billing plugin for DeepSeek Harness (`dsh web` / desktop).
 Bills every LLM call automatically against the **official DeepSeek pricing
 policy schedule** (including peak/off-peak pricing effective 2026-08-17),
-persists a ledger, shows the **account balance**, and renders live cost badges
-in the browser — **displaying USD when the UI language is English**.
+adds an **online pricing catalog** (models.dev + OpenRouter — built-in snapshot
++ TTL cache, so new models and price changes need no plugin release), provides
+**cached free-model detection with one-click zero-rate billing** (confirm-first
+UI, history repriced automatically), persists a ledger, shows the **account
+balance**, and renders live cost badges in the browser — **displaying USD when
+the UI language is English**.
+
+> This repository is a fork of [bpc-oss/dsh-web-billing](https://github.com/bpc-oss/dsh-web-billing)
+> v2.3.2, rebuilt around the online catalog in 3.0.0. All upstream 2.x
+capabilities (official policy pricing, coding-plan routing, ledger/reprice/
+freeze, balance, budget) are fully preserved.
 
 **In one line**: make your AI spend visible, itemized, and optimizable — official
 prices auto-follow, local/subscription/free-ride are classified precisely,
@@ -29,7 +42,12 @@ history re-prices on demand, budget and balance are always visible.
 
 | Session header badge (hover for this-session details) | Settings → Cost page (English UI, current layout) |
 | --- | --- |
+| --- | --- |
 | ![Session badge](docs/screenshots/badge-session-en.png) | ![Cost page](docs/screenshots/settings-en-current.png) |
+
+| 3.0 · Free-models panel (checkboxes + confirm-first apply) | 3.0 · Fully-free session badge (¥0) |
+| --- | --- |
+| ![Free models panel](docs/screenshots/free-models-panel.png) | ![Free session badge](docs/screenshots/badge-session-free.png) |
 
 > Screenshots above are from the English UI; the Chinese-UI equivalents are
 > in [README.md](README.md) (the shared `settings-*.png` captures are
@@ -39,7 +57,62 @@ history re-prices on demand, budget and balance are always visible.
 
 ## ✨ Key features
 
-### 1. Official policy auto-pricing (peak/off-peak)
+### 1. Online pricing catalog (new in 3.0: snapshot + online refresh + TTL cache)
+
+Upstream 2.x hardcoded its price tables, so new models required a plugin
+release. 3.0 adds a catalog layer in `lib/catalog.js`:
+
+- **Dual sources**: the [models.dev](https://models.dev/api.json) full catalog
+  (~8.7k models across 226 providers, same source as the pi-ai catalog) plus
+  [OpenRouter](https://openrouter.ai/api/v1/models) live prices (the
+  openrouter namespace wins).
+- **Built-in snapshot fallback**: `lib/promo-models.js` ships with the
+  package; billing works fully offline.
+- **TTL disk cache**: `web-billing-catalog.json` (12h default, compact array
+  encoding ~330KB). Zero network within TTL; startup background refresh +
+  manual refresh on the Cost page + optional interval refresh — never probed
+  per message.
+- **New catalog layer in the price chain**: user override → coding plan →
+  official policy (named models) → user `*` → **online catalog market price**
+  → official `*` fallback. Third-party usage models (`zai/glm-5.1`, `nvidia/*`,
+  …) now bill at real market USD prices (CNY via `codingUsdCnyRate`) instead
+  of DeepSeek's fallback.
+- **Provider aliases**: `openrouter-free` (the dsh-model-palette free lane)
+  and other custom router providers resolve prices and free sets through
+  their catalog namespace.
+- **Memory guards**: flat price triples, 50k model cap, 64MB response cap,
+  cached free sets on the hot path.
+- **Endpoints**: `GET /billing/catalog` (snapshot + free sets),
+  `POST /billing/catalog/refresh` (`{force}` skips TTL). The catalog content
+  hash joins the pricing fingerprint — history reprices only when prices or
+  free sets actually change, plus a pricing-engine version bump (3.0.0
+  reprices existing ledgers once on first launch).
+
+### 2. Free models: cached detection + one-click zero-rate billing (new in 3.0)
+
+- **Detection costs zero network**: free models are *derived* from the cached
+  catalog (zero input+output price, or `:free` id suffix) — identification is
+  pure computation; only refresh touches the network. No re-probing per
+  message or per panel open.
+- **Effective set = built-in snapshot ∪ online-derived** (online overrides
+  same-name providers; built-in-only entries like `bai` survive). Measured:
+  81 providers, 597 free models.
+- **One-click zero-rate billing (confirm-first UI)**: Settings → Cost → the
+  free-models panel groups providers (applied pinned first), lists per-model
+  checkboxes with select-all/none. "Apply changes" first shows a confirmation
+  strip (`Bill the selection at 0? +N · history will be repriced`) — nothing
+  is applied silently.
+- **Applying reprices history**: the provider flips to `usage-free` with the
+  exact user-selected free set, and all existing records are immediately
+  recomputed (billed → zero → savings).
+- **Endpoints**: `GET /billing/free-models` (sets + applied state),
+  `POST /billing/free-models/refresh` (force re-fetch),
+  `POST /billing/free-models/apply` (`{provider, models[], action: add|remove}`).
+- **Display is configurable**: `zeroCostDisplay: show` (default — pure-zero
+  messages show a `¥0` chip, fully-free sessions show a `¥0` badge) or `hide`
+  (chips hidden; the ledger still records zeros).
+
+### 3. Official policy auto-pricing (peak/off-peak)
 
 `lib/pricing.js` ships a curated official policy schedule
 (`OFFICIAL_PRICING_POLICIES`):
@@ -75,7 +148,7 @@ Semantics:
 > ([DeepSeek API Docs](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/));
 > verify against the official page and send a PR if you spot drift.
 
-### 2. Coding-plan billing (full DSH preset coverage)
+### 4. Coding-plan billing (full DSH preset coverage)
 
 Besides the DeepSeek official API, you can connect various **coding plans**
 (subscription coding bundles) in DSH, such as `opencode-go` / `opencode` /
@@ -108,7 +181,7 @@ and prices by **provider routing**:
 > `codingUsdCnyRate` (configurable); the USD figures are always the official
 > truth.
 
-### 3. Provider metering (billing model)
+### 5. Provider metering (billing model)
 
 Each provider can have its own billing model (Settings → Cost → Provider
 metering, **takes effect immediately — no restart**):
@@ -132,7 +205,7 @@ metering, **takes effect immediately — no restart**):
 - **Recovery view**: subscription monthly fee vs cumulative recovered amount,
   visible in source groups and the header panel.
 
-### 4. Cost page (Settings → Cost)
+### 6. Cost page (Settings → Cost)
 
 The browser-side summary page (read-only plus a few immediate settings):
 
@@ -162,7 +235,7 @@ The browser-side summary page (read-only plus a few immediate settings):
 > (`maxRecent`, default 100000 records); older data is aggregate-level only
 > (day totals are always full).
 
-### 5. Session-header badge (top-right)
+### 7. Session-header badge (top-right)
 
 - **This session's today / cumulative** cost + savings (savings total is
   **gold**, distinct from per-source colors).
@@ -180,7 +253,7 @@ The browser-side summary page (read-only plus a few immediate settings):
 - **Panel UX**: rendered via React portal (never covered by the sidebar),
   anchored to the badge, opaque themed background, hover auto-open/close.
 
-### 6. Account balance
+### 8. Account balance
 
 Reuses the provider's API key to call the official `GET /user/balance`
 (60s refresh, 5s timeout); CNY/USD both reported with the billing state. A
@@ -192,7 +265,7 @@ while periodic refreshes retry; only a never-succeeded query shows
 (`balance.enabled` or the settings toggle; turning it off stops polling and
 stops using the API key).
 
-### 7. Pricing intel (current unit prices & next transition)
+### 9. Pricing intel (current unit prices & next transition)
 
 `/billing/state` exposes pricing intel for the client and external tools:
 
@@ -214,10 +287,8 @@ The plugin is a standard DSH **bundle** (`dsh.bundle.patch` → its own
 [packaging guide](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/publish.md):
 
 ```powershell
-# From GitHub
-dsh plugin --profile web add github:<owner>/dsh-web-billing
-# Or from npm (once published)
-dsh plugin --profile web add dsh-web-billing
+# From GitHub (pure JS, no build step, works out of the box)
+dsh plugin --profile web add github:Jensen-Yao/dsh-web-billing
 # Or link a local checkout (no copy; edits take effect on restart)
 powershell -ExecutionPolicy Bypass -File scripts/install.ps1 -Profile web
 ```
@@ -261,6 +332,14 @@ row's config, so restate every key you keep:
 | `balance.refreshMs` | `60000` | Balance refresh interval |
 | `balance.timeoutMs` | `5000` | Balance request timeout |
 | `metering` | `{}` | Static billing-model table: `{ provider: { mode, monthly?, freeModels? } }` (runtime edits persist to `web-billing-metering.json`) |
+| `zeroCostDisplay` | `show` | Zero-cost (free-model) message chips: `show` = display `¥0` (fully-free session badges too); `hide` = hide them (the ledger still records zeros) |
+| `catalog.enabled` | `true` | Enable the online pricing catalog (off = built-in snapshot only, no network enrichment) |
+| `catalog.modelsDevUrl` | `https://models.dev/api.json` | models.dev catalog URL (mirror/proxy friendly) |
+| `catalog.openrouterUrl` | `https://openrouter.ai/api/v1/models` | OpenRouter catalog URL |
+| `catalog.ttlMs` | `43200000` | Catalog cache TTL (12h); zero network within TTL |
+| `catalog.timeoutMs` | `15000` | Catalog request timeout |
+| `catalog.refreshOnStartup` | `true` | Refresh a stale catalog in the background at startup (silent failure keeps the snapshot) |
+| `catalog.refreshIntervalMinutes` | `0` | Periodic background refresh in minutes (0 = off; set 60 etc. to track new models/price changes) |
 
 Unit fields: `input`=cache-miss input, `cacheRead`=cache-hit input, `output`=output (¥ per million tokens).
 
@@ -288,18 +367,19 @@ Unit fields: `input`=cache-miss input, `cacheRead`=cache-hit input, `output`=out
 ## Develop
 
 ```powershell
-npm run check   # syntax checks
-npm test        # pricing / balance / ledger unit tests (node:test, zero deps)
+npm run check   # syntax checks + full vitest run
+npm test        # vitest (46 tests: catalog parsing/merge/hash/TTL/concurrency/offline, price-chain precedence, zero-rating, HTTP endpoint integration)
 node scripts/sync-coding-plans.mjs   # regenerate coding-plan prices from your DSH pi-ai catalog
 ```
 
-Layout: `lib/pricing.js` (pricing engine incl. coding-plan route + metering),
+Layout: `lib/pricing.js` (pricing engine incl. coding-plan route + online-catalog layer + metering),
+`lib/catalog.js` (online pricing catalog: models.dev + OpenRouter parsing / TTL disk cache / free-model derivation / provider aliases),
 `lib/coding-plans.js` (generated coding-plan prices),
 `lib/promo-models.js` (generated free-model catalog), `lib/balance.js`,
 `lib/index.js` (host: ledger, balance, metering/budget/balance toggle,
 `/billing` routes), `lib/client.js`
 (browser: session badge, message chip, Settings→Cost page; handwritten
-bundle, no build step), `test/`, `scripts/`. The browser bundle is a handwritten module (same format as official DSH client plugins): client changes take effect after a page refresh + `dsh web` restart; host-side changes need a restart.
+bundle, no build step), `tests/`, `scripts/`. The browser bundle is a handwritten module (same format as official DSH client plugins): client changes take effect after a page refresh + `dsh web` restart; host-side changes need a restart.
 
 ## Contributing / 贡献
 

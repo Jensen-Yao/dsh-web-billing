@@ -33,3 +33,19 @@ export class BillingLedger {
   flush(): Promise<void>;
   sessionView(id: string): Record<string, unknown> | undefined;
 }
+
+/**
+ * Online pricing catalog: built-in snapshot + online refresh (models.dev +
+ * OpenRouter) + TTL disk cache. Free-model detection is derived from the
+ * cached catalog (no network on the hot path); see lib/catalog.js.
+ */
+export class PricingCatalog {
+  constructor(deps?: Record<string, unknown>);
+  load(): void;
+  isFresh(now?: number): boolean;
+  lookup(provider: string, model: string): { input: number; cacheRead: number; output: number } | undefined;
+  effectiveFreeModels(): Record<string, Record<string, boolean>>;
+  refresh(options?: { force?: boolean }): Promise<Record<string, unknown>>;
+  snapshot(): Record<string, unknown>;
+  hash(): string;
+}
